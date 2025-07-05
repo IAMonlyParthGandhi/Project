@@ -47,6 +47,25 @@ app.use(
   })
 );
 
+// Enhanced compression settings for better performance
+app.use(
+  compression({
+    level: 9, // Maximum compression level
+    threshold: 1024, // Only compress responses larger than 1KB
+    filter: (req, res) => {
+      if (req.headers["x-no-compression"]) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+    // Enable brotli compression if available
+    brotli: {
+      enabled: true,
+      zlib: {},
+    },
+  })
+);
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -65,11 +84,29 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Middleware
-app.use(compression());
 app.use(morgan("combined"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Add cache control middleware for static assets
+app.use((req, res, next) => {
+  // Static files cache for 1 day
+  if (req.url.match(/\.(css|js|jpg|jpeg|png|gif|ico|woff|woff2|ttf|svg)$/)) {
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Expires", new Date(Date.now() + 86400000).toUTCString());
+  }
+  // API responses - no cache by default
+  else if (req.url.startsWith("/api/")) {
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  }
+  next();
+});
 
 // CORS configuration
 app.use(

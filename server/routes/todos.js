@@ -4,7 +4,7 @@ const { asyncHandler, AppError } = require("../middleware/errorHandler");
 
 const router = express.Router();
 
-// Get all todos for authenticated user
+// Get all todos for authenticated user - optimized with better caching
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -41,6 +41,58 @@ router.get(
 
     if (tags) {
       const tagArray = tags.split(",").map((tag) => tag.trim());
+      filter.tags = { $in: tagArray };
+    }
+
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { tags: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === "asc" ? 1 : -1;
+
+    // Calculate pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    try {
+      // Use Promise.all for concurrent queries to improve performance
+      const [todos, totalCount] = await Promise.all([
+        Todo.find(filter)
+          .sort(sort)
+          .skip(skip)
+          .limit(limitNum)
+          .lean(), // Use lean() for better performance
+        Todo.countDocuments(filter),
+      ]);
+
+      const totalPages = Math.ceil(totalCount / limitNum);
+
+      // Set cache headers for better performance
+      res.set('Cache-Control', 'private, max-age=60'); // Cache for 1 minute
+      
+      res.json({
+        todos,
+        pagination: {
+          currentPage: pageNum,
+          totalPages,
+          totalItems: totalCount,
+          itemsPerPage: limitNum,
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1,
+        },
+      });
+    } catch (error) {
+      throw new AppError("Failed to fetch todos", 500);
+    }
+  })
+);
       filter.tags = { $in: tagArray };
     }
 
