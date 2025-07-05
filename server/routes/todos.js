@@ -64,19 +64,15 @@ router.get(
     try {
       // Use Promise.all for concurrent queries to improve performance
       const [todos, totalCount] = await Promise.all([
-        Todo.find(filter)
-          .sort(sort)
-          .skip(skip)
-          .limit(limitNum)
-          .lean(), // Use lean() for better performance
+        Todo.find(filter).sort(sort).skip(skip).limit(limitNum).lean(), // Use lean() for better performance
         Todo.countDocuments(filter),
       ]);
 
       const totalPages = Math.ceil(totalCount / limitNum);
 
       // Set cache headers for better performance
-      res.set('Cache-Control', 'private, max-age=60'); // Cache for 1 minute
-      
+      res.set("Cache-Control", "private, max-age=60"); // Cache for 1 minute
+
       res.json({
         todos,
         pagination: {
@@ -91,46 +87,6 @@ router.get(
     } catch (error) {
       throw new AppError("Failed to fetch todos", 500);
     }
-  })
-);
-      filter.tags = { $in: tagArray };
-    }
-
-    // Build query
-    let query = Todo.find(filter);
-
-    // Add text search if provided
-    if (search) {
-      query = Todo.find({
-        ...filter,
-        $text: { $search: search },
-      });
-    }
-
-    // Sort
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
-    query = query.sort(sortOptions);
-
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    query = query.skip(skip).limit(parseInt(limit));
-
-    // Execute query
-    const todos = await query;
-
-    // Get total count for pagination
-    const total = await Todo.countDocuments(filter);
-
-    res.json({
-      todos,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / parseInt(limit)),
-        totalItems: total,
-        itemsPerPage: parseInt(limit),
-      },
-    });
   })
 );
 
