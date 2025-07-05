@@ -1,16 +1,23 @@
 {
-  "name": "server",
+  "name": "todo-app-server",
   "version": "1.0.0",
+  "description": "Backend API server for MERN Todo Application",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "production": "NODE_ENV=production node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "express",
+    "mongodb",
+    "jwt",
+    "socket.io",
+    "rest-api"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",

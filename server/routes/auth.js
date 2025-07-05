@@ -9,10 +9,14 @@ const router = express.Router();
 // Rate limiting for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs for auth routes
+  max: 50, // increased limit for development
   message: "Too many authentication attempts, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting in development
+    return process.env.NODE_ENV === "development";
+  },
 });
 
 // Register
@@ -155,12 +159,20 @@ router.post(
       user._id
     );
 
-    // Replace old refresh token with new one
-    user.refreshTokens = user.refreshTokens.filter(
-      (tokenObj) => tokenObj.token !== refreshToken
+    // Use atomic update to replace old refresh token with new one
+    const updatedUser = await User.findByIdAndUpdate(
+      user._id,
+      {
+        $pull: { refreshTokens: { token: refreshToken } },
+      },
+      { new: true }
     );
-    user.refreshTokens.push({ token: newRefreshToken });
-    await user.save();
+
+    if (updatedUser) {
+      await User.findByIdAndUpdate(user._id, {
+        $push: { refreshTokens: { token: newRefreshToken } },
+      });
+    }
 
     // Set new refresh token cookie
     res.cookie("refreshToken", newRefreshToken, {
@@ -172,6 +184,7 @@ router.post(
 
     res.json({
       message: "Token refreshed successfully",
+      user: user.toPublicJSON(),
       accessToken,
     });
   })

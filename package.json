@@ -7,11 +7,10 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd server && npm run dev",
     "client": "cd client && npm start",
-    "build": "cd client && npm run build",
     "install-server": "cd server && npm install",
     "install-client": "cd client && npm install",
     "install-all": "npm run install-server && npm run install-client",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "cd client && npm test"
   },
   "keywords": [
     "todo",
@@ -19,7 +18,9 @@
     "react",
     "nodejs",
     "mongodb",
-    "typescript"
+    "typescript",
+    "material-ui",
+    "socket.io"
   ],
   "author": "Your Name",
   "license": "MIT",
