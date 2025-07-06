@@ -1,0 +1,50 @@
+Todo App - Scope of Improvements and Known Bugs
+Generated on: July 6, 2025
+
+1. Backend Improvements
+   - TypeScript Migration: Move server code from JavaScript to TypeScript for strong typing and IDE support.
+   - Database Optimization:
+     * Remove duplicate Mongoose indexes in models (e.g., userId+completed, dueDate, isArchived indexes).
+   - API Enhancements:
+     * Add versioning (e.g., /api/v1/)
+     * Standardize response format across endpoints
+     * Consider GraphQL for flexible data fetching
+   - Performance Optimizations:
+     * Use field projections in queries to limit returned fields
+     * Introduce server-side caching where appropriate
+   - Documentation:
+     * Add JSDoc comments to functions and modules
+     * Generate Swagger/OpenAPI specs for the REST API
+
+2. Security Improvements
+   - Eliminate Hardcoded Secrets:
+     * Avoid fallback secrets in code (use environment validation)
+   - Authentication Enhancements:
+     * Implement refresh token rotation
+     * Add CSRF protection on form submissions
+
+3. Potential Bugs
+   - Error Handling:
+     * Inconsistent try/catch usage in async route handlers may mask errors
+   - Socket.IO Authentication:
+     * No logic to handle token expiration on active socket connections
+   - Race Conditions:
+     * Concurrent todo ordering logic may lead to inconsistent order values
+   - Mongoose Deprecation:
+     * Avoid deprecated document.remove(); use Model.pull() or update operators
+   - Input Validation:
+     * Some routes lack thorough request data validation
+
+4. Feature Suggestions
+   - Implement Planned Features:
+     * Email notifications for due dates
+     * Calendar integration
+     * Team collaboration
+     * File attachments
+     * Two-factor authentication
+   - Additional Ideas:
+     * Recurring tasks
+     * Task dependencies
+     * Custom todo fields
+     * Enhanced analytics dashboard
+     * Kanban board UI

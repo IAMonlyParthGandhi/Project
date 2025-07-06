@@ -218,6 +218,33 @@ For development, you can run both frontend and backend simultaneously:
 - **Secure Headers** with Helmet middleware
 - **Environment Variables** for sensitive data
 
+## 🔒 Security & Performance (Updated July 2025)
+
+**Enterprise-Level Security Improvements:**
+
+- ✅ **Zero Hardcoded Secrets** - Environment validation ensures proper configuration
+- ✅ **Refresh Token Rotation** - Automatic token rotation prevents replay attacks
+- ✅ **CSRF Protection** - Double-submit cookie pattern implementation
+- ✅ **Comprehensive Input Validation** - Joi-based validation on all endpoints
+- ✅ **Socket.IO Authentication** - Real-time connection security with token expiration handling
+- ✅ **Race Condition Protection** - Transaction-based operations for data integrity
+
+**Performance Optimizations:**
+
+- ⚡ **Database Index Optimization** - Removed duplicates, improved query performance
+- ⚡ **Query Projection** - Field-specific queries reduce payload size
+- ⚡ **Concurrent Operations** - Promise.all for parallel database operations
+- ⚡ **Response Caching** - Smart caching headers for better performance
+- ⚡ **API Versioning** - v1 API with backward compatibility
+
+**Bug Fixes:**
+
+- 🔧 **Deprecated API Removal** - Updated to modern MongoDB operations
+- 🔧 **Error Handling** - Consistent try/catch blocks and error responses
+- 🔧 **Response Standardization** - Uniform API response format across all endpoints
+
+> See `IMPROVEMENTS_IMPLEMENTED.md` for detailed technical documentation.
+
 ## 🚀 Deployment
 
 ### Backend Deployment (Heroku/Railway/DigitalOcean)

@@ -2,6 +2,8 @@ const express = require("express");
 const User = require("../models/User");
 const { generateTokens, verifyRefreshToken } = require("../middleware/auth");
 const { asyncHandler, AppError } = require("../middleware/errorHandler");
+const { validate } = require("../middleware/validation");
+const { successResponse } = require("../utils/responseFormatter");
 const rateLimit = require("express-rate-limit");
 
 const router = express.Router();
@@ -23,17 +25,9 @@ const authLimiter = rateLimit({
 router.post(
   "/register",
   authLimiter,
+  validate("register"),
   asyncHandler(async (req, res) => {
     const { username, email, password } = req.body;
-
-    // Validation
-    if (!username || !email || !password) {
-      throw new AppError("Username, email, and password are required", 400);
-    }
-
-    if (password.length < 6) {
-      throw new AppError("Password must be at least 6 characters long", 400);
-    }
 
     // Check if user already exists
     const existingUser = await User.findOne({
@@ -64,11 +58,15 @@ router.post(
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    res.status(201).json({
-      message: "User registered successfully",
-      user: user.toPublicJSON(),
-      accessToken,
-    });
+    res.status(201).json(
+      successResponse(
+        {
+          user: user.toPublicJSON(),
+          accessToken,
+        },
+        "User registered successfully"
+      )
+    );
   })
 );
 
@@ -76,12 +74,9 @@ router.post(
 router.post(
   "/login",
   authLimiter,
+  validate("login"),
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      throw new AppError("Email and password are required", 400);
-    }
 
     // Find user and include password for verification
     const user = await User.findOne({ email }).select("+password");
@@ -120,15 +115,19 @@ router.post(
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    res.json({
-      message: "Login successful",
-      user: user.toPublicJSON(),
-      accessToken,
-    });
+    res.json(
+      successResponse(
+        {
+          user: user.toPublicJSON(),
+          accessToken,
+        },
+        "Login successful"
+      )
+    );
   })
 );
 
-// Refresh token
+// Refresh token with rotation
 router.post(
   "/refresh",
   asyncHandler(async (req, res) => {
@@ -138,55 +137,80 @@ router.post(
       throw new AppError("Refresh token required", 401);
     }
 
-    // Verify refresh token
-    const decoded = verifyRefreshToken(refreshToken);
+    try {
+      // Verify refresh token
+      const decoded = verifyRefreshToken(refreshToken);
 
-    // Find user and check if refresh token exists
-    const user = await User.findById(decoded.userId);
-    if (!user || !user.isActive) {
-      throw new AppError("Invalid refresh token", 401);
-    }
+      // Find user and check if refresh token exists
+      const user = await User.findById(decoded.userId);
+      if (!user || !user.isActive) {
+        throw new AppError("Invalid refresh token", 401);
+      }
 
-    const tokenExists = user.refreshTokens.some(
-      (tokenObj) => tokenObj.token === refreshToken
-    );
-    if (!tokenExists) {
-      throw new AppError("Invalid refresh token", 401);
-    }
+      const tokenExists = user.refreshTokens.some(
+        (tokenObj) => tokenObj.token === refreshToken
+      );
 
-    // Generate new tokens
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-      user._id
-    );
+      if (!tokenExists) {
+        // If refresh token doesn't exist, it might be compromised
+        // Remove all refresh tokens for security
+        await User.findByIdAndUpdate(user._id, {
+          $set: { refreshTokens: [] },
+        });
+        throw new AppError(
+          "Invalid refresh token - security breach detected",
+          401
+        );
+      }
 
-    // Use atomic update to replace old refresh token with new one
-    const updatedUser = await User.findByIdAndUpdate(
-      user._id,
-      {
+      // Generate new tokens (rotation)
+      const { accessToken, refreshToken: newRefreshToken } = generateTokens(
+        user._id
+      );
+
+      // Atomically replace old refresh token with new one
+      await User.findByIdAndUpdate(user._id, {
         $pull: { refreshTokens: { token: refreshToken } },
-      },
-      { new: true }
-    );
+      });
 
-    if (updatedUser) {
       await User.findByIdAndUpdate(user._id, {
         $push: { refreshTokens: { token: newRefreshToken } },
       });
+
+      // Clean up old refresh tokens (keep only last 5)
+      const updatedUser = await User.findById(user._id);
+      if (updatedUser.refreshTokens.length > 5) {
+        const tokensToKeep = updatedUser.refreshTokens.slice(-5);
+        await User.findByIdAndUpdate(user._id, {
+          $set: { refreshTokens: tokensToKeep },
+        });
+      }
+
+      // Set new refresh token cookie
+      res.cookie("refreshToken", newRefreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      res.json({
+        message: "Token refreshed successfully",
+        user: user.toPublicJSON(),
+        accessToken,
+      });
+    } catch (error) {
+      // Clear refresh token cookie on any error
+      res.clearCookie("refreshToken");
+
+      if (error.name === "TokenExpiredError") {
+        throw new AppError("Refresh token expired", 401);
+      } else if (error.name === "JsonWebTokenError") {
+        throw new AppError("Invalid refresh token", 401);
+      }
+
+      throw error;
     }
-
-    // Set new refresh token cookie
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    res.json({
-      message: "Token refreshed successfully",
-      user: user.toPublicJSON(),
-      accessToken,
-    });
   })
 );
 

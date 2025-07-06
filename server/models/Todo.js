@@ -149,25 +149,16 @@ todoSchema.virtual("isOverdue").get(function () {
   return this.dueDate && new Date() > this.dueDate && !this.completed;
 });
 
-// Enhanced indexes for better performance
+// Enhanced indexes for better performance - optimized to remove duplicates
 todoSchema.index({ userId: 1, createdAt: -1 });
 todoSchema.index({ userId: 1, category: 1 });
 todoSchema.index({ userId: 1, priority: 1 });
-todoSchema.index({ userId: 1, completed: 1 });
-todoSchema.index({ userId: 1, isArchived: 1 });
-todoSchema.index({ userId: 1, dueDate: 1 });
 todoSchema.index({ userId: 1, tags: 1 });
-// Compound index for common filter combinations
+// Compound indexes for common filter combinations
 todoSchema.index({ userId: 1, isArchived: 1, createdAt: -1 });
 todoSchema.index({ userId: 1, completed: 1, priority: 1 });
-// Text index for search functionality
-todoSchema.index({ title: "text", description: "text", tags: "text" });
-todoSchema.index({ userId: 1, completed: 1 });
 todoSchema.index({ userId: 1, dueDate: 1 });
-todoSchema.index({ userId: 1, isArchived: 1 });
-todoSchema.index({ tags: 1 });
-
-// Text search index for title and description
+// Text search index for title, description, category and tags
 todoSchema.index({
   title: "text",
   description: "text",

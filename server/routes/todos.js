@@ -1,24 +1,30 @@
 const express = require("express");
 const Todo = require("../models/Todo");
 const { asyncHandler, AppError } = require("../middleware/errorHandler");
+const { validate, customValidations } = require("../middleware/validation");
+const {
+  successResponse,
+  paginatedResponse,
+} = require("../utils/responseFormatter");
 
 const router = express.Router();
 
 // Get all todos for authenticated user - optimized with better caching
 router.get(
   "/",
+  validate("todoQuery", "query"),
   asyncHandler(async (req, res) => {
     const {
-      page = 1,
-      limit = 10,
-      sortBy = "createdAt",
-      sortOrder = "desc",
+      page,
+      limit,
+      sortBy,
+      sortOrder,
       category,
       priority,
       completed,
       search,
       tags,
-      isArchived = "false",
+      isArchived,
     } = req.query;
 
     // Build filter object
@@ -57,33 +63,53 @@ router.get(
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
 
     // Calculate pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
+    const skip = (page - 1) * limit;
 
     try {
+      // Use field projection for better performance
+      const projection = {
+        title: 1,
+        description: 1,
+        completed: 1,
+        priority: 1,
+        category: 1,
+        tags: 1,
+        dueDate: 1,
+        reminderDate: 1,
+        userId: 1,
+        order: 1,
+        subtasks: 1,
+        completedAt: 1,
+        estimatedTime: 1,
+        actualTime: 1,
+        isArchived: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+
       // Use Promise.all for concurrent queries to improve performance
       const [todos, totalCount] = await Promise.all([
-        Todo.find(filter).sort(sort).skip(skip).limit(limitNum).lean(), // Use lean() for better performance
+        Todo.find(filter, projection).sort(sort).skip(skip).limit(limit).lean(),
         Todo.countDocuments(filter),
       ]);
 
-      const totalPages = Math.ceil(totalCount / limitNum);
+      const totalPages = Math.ceil(totalCount / limit);
+
+      const pagination = {
+        currentPage: page,
+        totalPages,
+        totalItems: totalCount,
+        itemsPerPage: limit,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      };
 
       // Set cache headers for better performance
       res.set("Cache-Control", "private, max-age=60"); // Cache for 1 minute
 
-      res.json({
-        todos,
-        pagination: {
-          currentPage: pageNum,
-          totalPages,
-          totalItems: totalCount,
-          itemsPerPage: limitNum,
-          hasNext: pageNum < totalPages,
-          hasPrev: pageNum > 1,
-        },
-      });
+      res.json(
+        paginatedResponse(todos, pagination, "Todos retrieved successfully")
+      );
     } catch (error) {
       throw new AppError("Failed to fetch todos", 500);
     }
@@ -167,7 +193,11 @@ router.get(
 // Create new todo
 router.post(
   "/",
+  validate("createTodo"),
+  customValidations.validateReminderDate,
   asyncHandler(async (req, res) => {
+    const { getNextOrderValue } = require("../utils/todoOrdering");
+
     const todoData = {
       ...req.body,
       userId: req.userId,
@@ -175,25 +205,27 @@ router.post(
 
     // Set order to be last if not provided
     if (!todoData.order) {
-      const lastTodo = await Todo.findOne({ userId: req.userId })
-        .sort({ order: -1 })
-        .select("order");
-      todoData.order = lastTodo ? lastTodo.order + 1 : 0;
+      todoData.order = await getNextOrderValue(req.userId, todoData.category);
     }
 
     const todo = new Todo(todoData);
     await todo.save();
 
-    res.status(201).json({
-      message: "Todo created successfully",
-      todo,
-    });
+    // Populate virtuals for response
+    const populatedTodo = await Todo.findById(todo._id);
+
+    res
+      .status(201)
+      .json(successResponse(populatedTodo, "Todo created successfully"));
   })
 );
 
 // Update todo
 router.put(
   "/:id",
+  customValidations.validateObjectId("id"),
+  validate("updateTodo"),
+  customValidations.validateReminderDate,
   asyncHandler(async (req, res) => {
     const todo = await Todo.findOne({
       _id: req.params.id,
@@ -204,20 +236,19 @@ router.put(
       throw new AppError("Todo not found", 404);
     }
 
-    // Update fields
+    // Update fields safely
     Object.keys(req.body).forEach((key) => {
-      if (key !== "userId") {
-        // Prevent userId from being updated
+      if (key !== "userId" && key !== "_id") {
         todo[key] = req.body[key];
       }
     });
 
     await todo.save();
 
-    res.json({
-      message: "Todo updated successfully",
-      todo,
-    });
+    // Populate virtuals for response
+    const updatedTodo = await Todo.findById(todo._id);
+
+    res.json(successResponse(updatedTodo, "Todo updated successfully"));
   })
 );
 
@@ -371,7 +402,8 @@ router.delete(
       throw new AppError("Subtask not found", 404);
     }
 
-    subtask.remove();
+    // Use pull() instead of deprecated remove()
+    todo.subtasks.pull(req.params.subtaskId);
     await todo.save();
 
     res.json({
@@ -438,6 +470,57 @@ router.get(
       "attachment; filename=todos-export.json"
     );
     res.json(exportData);
+  })
+);
+
+// Reorder todos with race condition protection
+router.post(
+  "/reorder",
+  asyncHandler(async (req, res) => {
+    const { todoIds } = req.body;
+
+    if (!Array.isArray(todoIds) || todoIds.length === 0) {
+      throw new AppError("todoIds array is required", 400);
+    }
+
+    const { reorderTodos } = require("../utils/todoOrdering");
+
+    try {
+      await reorderTodos(req.userId, todoIds);
+
+      res.json(successResponse(null, "Todos reordered successfully"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw new AppError("Failed to reorder todos", 500);
+    }
+  })
+);
+
+// Move todo to specific position
+router.patch(
+  "/:id/position",
+  customValidations.validateObjectId("id"),
+  asyncHandler(async (req, res) => {
+    const { position } = req.body;
+
+    if (!position || !Number.isInteger(position) || position < 1) {
+      throw new AppError("Valid position (integer >= 1) is required", 400);
+    }
+
+    const { moveTodoToPosition } = require("../utils/todoOrdering");
+
+    try {
+      await moveTodoToPosition(req.params.id, req.userId, position);
+
+      res.json(successResponse(null, "Todo position updated successfully"));
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw new AppError("Failed to move todo", 500);
+    }
   })
 );
 

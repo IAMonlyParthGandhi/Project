@@ -1,3 +1,5 @@
+const { errorResponse } = require("../utils/responseFormatter");
+
 const errorHandler = (err, req, res, next) => {
   console.error("Error Stack:", err.stack);
 
@@ -8,10 +10,7 @@ const errorHandler = (err, req, res, next) => {
       message: error.message,
     }));
 
-    return res.status(400).json({
-      message: "Validation Error",
-      errors,
-    });
+    return res.status(400).json(errorResponse("Validation Error", errors, 400));
   }
 
   // Mongoose duplicate key error
@@ -19,75 +18,82 @@ const errorHandler = (err, req, res, next) => {
     const field = Object.keys(err.keyValue)[0];
     const value = err.keyValue[field];
 
-    return res.status(409).json({
-      message: `${
-        field.charAt(0).toUpperCase() + field.slice(1)
-      } '${value}' already exists`,
-      field,
-    });
+    return res
+      .status(409)
+      .json(
+        errorResponse(
+          `${
+            field.charAt(0).toUpperCase() + field.slice(1)
+          } '${value}' already exists`,
+          [{ field, value }],
+          409
+        )
+      );
   }
 
   // Mongoose cast error (invalid ObjectId)
   if (err.name === "CastError") {
-    return res.status(400).json({
-      message: "Invalid ID format",
-      field: err.path,
-    });
+    return res
+      .status(400)
+      .json(errorResponse("Invalid ID format", [{ field: err.path }], 400));
   }
 
   // JWT errors
   if (err.name === "JsonWebTokenError") {
-    return res.status(401).json({
-      message: "Invalid token",
-    });
+    return res.status(401).json(errorResponse("Invalid token", null, 401));
   }
 
   if (err.name === "TokenExpiredError") {
-    return res.status(401).json({
-      message: "Token expired",
-    });
+    return res.status(401).json(errorResponse("Token expired", null, 401));
   }
 
   // File upload errors
   if (err.code === "LIMIT_FILE_SIZE") {
-    return res.status(400).json({
-      message: "File size too large",
-      maxSize: "10MB",
-    });
+    return res
+      .status(400)
+      .json(errorResponse("File size too large", [{ maxSize: "10MB" }], 400));
   }
 
   if (err.code === "LIMIT_UNEXPECTED_FILE") {
-    return res.status(400).json({
-      message: "Unexpected file field",
-    });
+    return res
+      .status(400)
+      .json(errorResponse("Unexpected file field", null, 400));
   }
 
   // Rate limiting error
   if (err.status === 429) {
-    return res.status(429).json({
-      message: "Too many requests, please try again later",
-    });
+    return res
+      .status(429)
+      .json(
+        errorResponse("Too many requests, please try again later", null, 429)
+      );
   }
 
   // Custom application errors
   if (err.statusCode) {
-    return res.status(err.statusCode).json({
-      message: err.message,
-    });
+    return res
+      .status(err.statusCode)
+      .json(errorResponse(err.message, err.errors || null, err.statusCode));
   }
 
   // Default server error
-  res.status(500).json({
-    message: "Internal Server Error",
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
-  });
+  res
+    .status(500)
+    .json(
+      errorResponse(
+        "Internal Server Error",
+        process.env.NODE_ENV === "development" ? [{ stack: err.stack }] : null,
+        500
+      )
+    );
 };
 
 // Custom error class for application errors
 class AppError extends Error {
-  constructor(message, statusCode) {
+  constructor(message, statusCode, errors = null) {
     super(message);
     this.statusCode = statusCode;
+    this.errors = errors;
     this.isOperational = true;
 
     Error.captureStackTrace(this, this.constructor);

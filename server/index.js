@@ -10,11 +10,20 @@ const { createServer } = require("http");
 const { Server } = require("socket.io");
 require("dotenv").config();
 
+// Validate environment configuration
+const { validateEnvironment } = require("./config/environment");
+validateEnvironment();
+
 const authRoutes = require("./routes/auth");
 const todoRoutes = require("./routes/todos");
 const userRoutes = require("./routes/users");
 const { authenticateToken } = require("./middleware/auth");
 const { errorHandler } = require("./middleware/errorHandler");
+const {
+  authenticateSocket,
+  handleTokenExpiration,
+  setupSocketHandlers,
+} = require("./middleware/socketAuth");
 
 const app = express();
 const server = createServer(app);
@@ -124,62 +133,45 @@ mongoose
   .then(() => console.log("Connected to MongoDB"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-// Routes
+// API v1 Routes
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/todos", authenticateToken, todoRoutes);
+app.use("/api/v1/users", authenticateToken, userRoutes);
+
+// Legacy routes (maintain backward compatibility)
 app.use("/api/auth", authRoutes);
 app.use("/api/todos", authenticateToken, todoRoutes);
 app.use("/api/users", authenticateToken, userRoutes);
 
-// Health check endpoint
+// Health check endpoints
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     status: "OK",
+    version: "1.0.0",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
   });
 });
 
-// Socket.IO for real-time updates
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (!token) {
-    return next(new Error("Authentication error"));
-  }
-
-  const jwt = require("jsonwebtoken");
-  try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "fallback_secret"
-    );
-    socket.userId = decoded.userId;
-    next();
-  } catch (err) {
-    next(new Error("Authentication error"));
-  }
+app.get("/api/v1/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    version: "1.0.0",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV,
+  });
 });
+
+// Enhanced Socket.IO for real-time updates with proper authentication
+io.use(authenticateSocket);
+
+// Handle token expiration for active connections
+handleTokenExpiration(io);
 
 io.on("connection", (socket) => {
-  console.log(`User ${socket.userId} connected`);
-
-  // Join user-specific room
-  socket.join(`user_${socket.userId}`);
-
-  // Handle todo updates
-  socket.on("todo_updated", (data) => {
-    socket.to(`user_${socket.userId}`).emit("todo_updated", data);
-  });
-
-  socket.on("todo_created", (data) => {
-    socket.to(`user_${socket.userId}`).emit("todo_created", data);
-  });
-
-  socket.on("todo_deleted", (data) => {
-    socket.to(`user_${socket.userId}`).emit("todo_deleted", data);
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`User ${socket.userId} disconnected`);
-  });
+  setupSocketHandlers(socket, io);
 });
 
 // Error handling middleware (must be last)
