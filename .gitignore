@@ -79,3 +79,6 @@ tmp/
 *.zip
 *.tar.gz
 *.rar
+
+# Miss
+IMPROVEMENTS_IMPLEMENTED.md
